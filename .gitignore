@@ -1,0 +1,62 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+ENV/
+
+# Python: bytecode e arquivos de build
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Testes, cobertura e ferramentas de análise
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+junit.xml
+
+# Configurações locais e segredos (preservar exemplos)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.streamlit/secrets.toml
+
+# Banco SQLite e arquivos auxiliares de transação
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+*.db3
+*.db3-*
+/data/*
+!/data/.gitkeep
+
+# Logs e backups locais
+*.log
+/logs/*
+!/logs/.gitkeep
+/backups/
+
+# Arquivos temporários de editores e do sistema operacional
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
