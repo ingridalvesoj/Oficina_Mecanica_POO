@@ -10,7 +10,9 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from oficina.config import LOGO_PATH
 
 
 def money(value: int) -> str:
@@ -88,7 +90,9 @@ def render_order_pdf(detail: dict) -> bytes:
         safe = escape(str(value)).replace("\n", "<br/>")
         return Paragraph(safe, styles[style])
 
-    story = [paragraph("OFICINA · ORDEM DE SERVIÇO", "OficinaTitle")]
+    logo = Image(str(LOGO_PATH), width=48 * mm, height=32 * mm, kind="proportional")
+    logo.hAlign = "CENTER"
+    story = [logo, Spacer(1, 4 * mm), paragraph("OFICINA · ORDEM DE SERVIÇO", "OficinaTitle")]
     story.extend(
         [
             paragraph(f"OS {order.id} | Situação: {order.status}"),

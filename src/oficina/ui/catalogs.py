@@ -62,7 +62,7 @@ def render_catalog(actor, catalog, stock, name):
             data["senha"] = st.text_input(
                 "Senha *" if selected is None else "Nova senha (deixe vazio para manter)",
                 type="password",
-                help="Mínimo de 8 caracteres e um caractere especial.",
+                help="Mínimo de 8 caracteres, uma letra maiúscula, uma minúscula e um caractere especial.",
             )
         elif name == "veiculos":
             owners = [
@@ -123,17 +123,18 @@ def render_catalog(actor, catalog, stock, name):
         table(balances)
         with st.form(f"stock_{revision}"):
             part_id = select_record(
-                "Peça para entrada", [p for p in balances if p["ativo"]], "descricao"
+                "Peça para movimentação", [p for p in balances if p["ativo"]], "descricao"
             )
-            quantity = st.number_input("Quantidade de entrada", 1, 1_000_000, 1, step=1)
+            kind = st.selectbox("Tipo de movimentação", ["Entrada", "Saída"])
+            quantity = st.number_input("Quantidade da movimentação", 1, 1_000_000, 1, step=1)
             reason = st.text_input(
-                "Justificativa da entrada (opcional)", placeholder="Ex.: compra de reposição"
+                "Justificativa da movimentação (opcional)", placeholder="Ex.: reposição ou retirada"
             )
-            submitted = st.form_submit_button("Registrar entrada", disabled=part_id is None)
+            submitted = st.form_submit_button("Registrar movimentação", disabled=part_id is None)
         if submitted:
             execute(
-                lambda: stock.enter(actor.id, part_id, quantity, reason),
-                "Entrada de estoque registrada.",
+                lambda: stock.move(actor.id, part_id, quantity, kind, reason),
+                f"{kind} de estoque registrada.",
             )
         with st.expander("Movimentações de estoque"):
             table(stock.history(actor.id))

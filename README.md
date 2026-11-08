@@ -12,7 +12,7 @@ Abra um terminal nesta pasta e execute:
 
 Ou execute `iniciar.cmd` no Windows. Acesse **http://127.0.0.1:8501**.
 
-No primeiro acesso, crie seu administrador, com uma senha de no mínimo 8 caracteres e pelo menos um caractere especial. **Não existe senha padrão.** Depois, entre com as credenciais criadas.
+No primeiro acesso, crie seu administrador, com uma senha de no mínimo 8 caracteres, uma letra maiúscula, uma minúscula e pelo menos um caractere especial. **Não existe senha padrão.** Depois, entre com as credenciais criadas.
 
 O banco é criado automaticamente em `data/oficina.sqlite3`. A aplicação inicia vazia; os dados fictícios usados nos testes não são inseridos no banco da oficina.
 
@@ -38,7 +38,7 @@ Em Linux/macOS, substitua `.venv\Scripts\python.exe` por `.venv/bin/python` e cr
 4. Em **Serviços**, cadastre a mão de obra e o preço.
 5. Em **Peças e estoque**, cadastre as peças e registre uma entrada de estoque; a justificativa é opcional.
 6. Em **Ordens de serviço**, abra uma OS, informe o problema e selecione o veículo e o mecânico.
-7. Adicione peças e serviços, inicie o orçamento e envie para aprovação.
+7. A OS começa em orçamento: adicione peças e serviços e selecione **Enviar para aprovação do cliente**. Baixe o PDF gerado para compartilhar com o cliente.
 8. Como administrador, aprove o orçamento.
 9. Inicie a execução; inicie e finalize cada serviço.
 10. Conclua a OS, fature, registre o pagamento integral e registre a entrega do veículo.
@@ -54,10 +54,11 @@ Os valores monetários aceitam `1234,56` ou `1234.56`, sem separador de milhar.
 | Abrir, editar e cancelar OS | Sim | Não |
 | Consultar OS | Todas | Apenas as atribuídas |
 | Consultar histórico | Todos os veículos | Veículos de OS atribuídas |
-| Adicionar/remover itens | Sim, conforme o estado | Solicita ao administrador |
+| Adicionar itens | Sim, conforme o estado | Apenas suas OS em orçamento |
+| Remover itens | Sim, conforme o estado | Solicita ao administrador |
 | Aprovar orçamento | Sim | Não |
 | Iniciar execução e atualizar serviços | Sim | Apenas suas OS |
-| Concluir OS | Sim | Apenas suas OS |
+| Concluir OS | Sim | Não |
 | Faturar, registrar pagamento e entrega | Sim | Não |
 
 As permissões são verificadas nos serviços de aplicação a cada operação. Inativar um usuário revoga seu acesso na próxima operação ou atualização da tela. O último administrador ativo não pode ser inativado, excluído ou convertido em mecânico.
@@ -86,15 +87,13 @@ As permissões são verificadas nos serviços de aplicação a cada operação. 
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Aberta
-    Aberta --> Orcamento: Iniciar orçamento
-    Orcamento --> Aguardando: Enviar para aprovação
+    [*] --> Orcamento
+    Orcamento --> Aguardando: Enviar para aprovação do cliente e gerar PDF
     Aguardando --> Aprovada: Administrador aprova
     Aprovada --> Execucao: Mecânico ativo atribuído
-    Execucao --> Concluida: Todos os serviços finalizados
-    Aguardando --> Orcamento: Alteração de itens
+    Execucao --> Concluida: Administrador conclui após finalizar os serviços
+    Aguardando --> Orcamento: Voltar ao orçamento ou alterar itens
     Aprovada --> Orcamento: Alteração de itens
-    Aberta --> Cancelada
     Orcamento --> Cancelada
     Aguardando --> Cancelada
     Aprovada --> Cancelada
@@ -254,7 +253,7 @@ Para uso remoto, configurar hospedagem Python, HTTPS, armazenamento persistente 
 ## Atualização de interface e operação — 02/11/2026
 
 - Tema em tons de rosa, com contraste para leitura.
-- Senhas novas ou alteradas: mínimo de 8 caracteres e pelo menos um caractere especial (por exemplo, `!`, `@` ou `#`). Senhas já cadastradas continuam funcionando.
+- Senhas novas ou alteradas: mínimo de 8 caracteres, uma letra maiúscula, uma minúscula e pelo menos um caractere especial (por exemplo, `!`, `@` ou `#`). Senhas já cadastradas continuam funcionando.
 - Confirmações em popup: fecham no próximo clique ou tecla, pelo botão de fechar ou automaticamente após cinco segundos. Inclui a criação do primeiro administrador.
 - Menu: Início → Clientes → Veículos → Usuários → Serviços → Peças e estoque → Ordens de serviço → Histórico.
 - CPF e telefone têm máscaras durante a digitação. O telefone aceita formatos com DDD e 10 ou 11 dígitos.
@@ -278,3 +277,16 @@ node tests/ui/test_masks.mjs
 ```
 
 Referências de implementação: [componentes v2](https://docs.streamlit.io/develop/concepts/custom-components/components-v2/state-and-triggers) e [estado das abas](https://docs.streamlit.io/develop/api-reference/layout/st.tabs).
+
+## Atualização de orçamento, estoque e identidade visual — 08/11/2026
+
+- A OS nasce **Em orçamento**. A primeira ação é **Enviar para aprovação do cliente**; não é necessário iniciar o orçamento separadamente.
+- O envio registra **Aguardando aprovação** e gera uma cópia em PDF na mesma transação. O arquivo fica disponível para download e armazenado na tabela `orcamentos_pdf` do SQLite. Cada reenvio cria uma versão, preservando as anteriores. O sistema prepara o documento; o compartilhamento com o cliente é feito pelo usuário.
+- **Voltar ao orçamento** permite revisar uma OS aguardando aprovação, mantendo itens, reservas e histórico. A ação é do administrador. O mecânico responsável pode adicionar peças e serviços enquanto ela estiver em orçamento, inclusive após esse retorno.
+- O mecânico pode iniciar/finalizar serviços; a conclusão da OS é exclusiva do administrador. As demais permissões, incluindo a restrição de faturamento, são preservadas.
+- Em **Peças e estoque**, selecione **Entrada** ou **Saída** e registre a movimentação. A justificativa continua opcional. Saídas não podem consumir o saldo reservado para ordens de serviço e são registradas com data e responsável.
+- Botões de ação, formulários e downloads usam o mesmo rosa. Faturas na OS aparecem sem numeração.
+- A logo original está em `src/oficina/assets/logo.png` e aparece no login, na barra lateral e no PDF.
+- A migração `003_order_budget_and_stock_exit.sql` preserva os movimentos e converte as OS antigas ainda em **Aberta** para **Em orçamento**, mantendo seu histórico. Não altera ordens em outras situações nem exige apagar o banco.
+
+Reinicie com `iniciar.cmd` para carregar esta versão. As migrações são aplicadas automaticamente ao banco configurado.

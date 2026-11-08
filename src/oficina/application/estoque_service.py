@@ -1,4 +1,5 @@
 from oficina.domain import validators as v
+from oficina.domain.exceptions import EstoqueInsuficienteError, ValidacaoError
 from oficina.infrastructure.repositories import Repository
 
 from .base import Service
@@ -6,17 +7,30 @@ from .base import Service
 
 class EstoqueService(Service):
     def enter(self, actor_id: int, part_id: int, quantity: int, reason: str = ""):
+        return self.move(actor_id, part_id, quantity, "Entrada", reason)
+
+    def withdraw(self, actor_id: int, part_id: int, quantity: int, reason: str = ""):
+        return self.move(actor_id, part_id, quantity, "Saída", reason)
+
+    def move(self, actor_id: int, part_id: int, quantity: int, kind: str, reason: str = ""):
+        if kind not in {"Entrada", "Saída"}:
+            raise ValidacaoError("Selecione entrada ou saída de estoque.")
         quantity = v.integer(quantity, "Quantidade", 1)
         reason = str(reason or "").strip()
         with self.database.transaction(write=True) as c:
             self.actor(c, actor_id, admin=True)
             part = Repository(c).get("pecas", part_id)
             self.active(part, "A peça")
-            v.integer(part["estoque"] + quantity, "Estoque")
-            c.execute("UPDATE pecas SET estoque=estoque+? WHERE id=?", (quantity, part_id))
+            if kind == "Saída" and Repository(c).available(part_id) < quantity:
+                raise EstoqueInsuficienteError(
+                    "A saída excede o estoque disponível. Quantidades reservadas não podem ser retiradas."
+                )
+            delta = quantity if kind == "Entrada" else -quantity
+            v.integer(part["estoque"] + delta, "Estoque")
+            c.execute("UPDATE pecas SET estoque=estoque+? WHERE id=?", (delta, part_id))
             c.execute(
-                "INSERT INTO movimentacoes_estoque(peca_id,usuario_id,tipo,quantidade,justificativa) VALUES (?,?,'Entrada',?,?)",
-                (part_id, actor_id, quantity, reason),
+                "INSERT INTO movimentacoes_estoque(peca_id,usuario_id,tipo,quantidade,justificativa) VALUES (?,?,?,?,?)",
+                (part_id, actor_id, kind, quantity, reason),
             )
 
     def balances(self, actor_id: int) -> list[dict]:

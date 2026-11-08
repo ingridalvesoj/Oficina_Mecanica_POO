@@ -4,6 +4,7 @@ from oficina.domain.exceptions import (
     EstadoInvalidoError,
     EstoqueInsuficienteError,
     PermissaoNegadaError,
+    PersistenciaError,
     RegistroNaoEncontradoError,
     ValidacaoError,
 )
@@ -63,11 +64,11 @@ class OrdemService(Service):
                 self._mechanic(repo, mechanic_id)
             order_id = c.execute(
                 "INSERT INTO ordens_servico(cliente_id,veiculo_id,mecanico_id,problema,status) VALUES (?,?,?,?,?)",
-                (client_id, vehicle_id, mechanic_id, problem, StatusOS.ABERTA),
+                (client_id, vehicle_id, mechanic_id, problem, StatusOS.ORCAMENTO),
             ).lastrowid
             c.execute(
                 "INSERT INTO historico_status_os(os_id,usuario_id,novo) VALUES (?,?,?)",
-                (order_id, actor_id, StatusOS.ABERTA),
+                (order_id, actor_id, StatusOS.ORCAMENTO),
             )
             return order_id
 
@@ -93,7 +94,11 @@ class OrdemService(Service):
             self._audit(c, order_id, actor_id, "Dados gerais atualizados")
 
     def _prepare_items(self, c, actor_id, order_id, reason):
-        order = self._access(c, actor_id, order_id, "administrar")
+        order = self._access(c, actor_id, order_id, "adicionar_itens")
+        if self.actor(c, actor_id).perfil == Perfil.MECANICO and order.status != StatusOS.ORCAMENTO:
+            raise PermissaoNegadaError(
+                "O mecânico pode adicionar itens somente enquanto a OS estiver em orçamento."
+            )
         order.validar_edicao()
         if order.status == StatusOS.EXECUCAO:
             reason = v.required(reason, "a justificativa da alteração durante a execução")
@@ -168,6 +173,7 @@ class OrdemService(Service):
             raise ValidacaoError("Tipo de item inválido.")
         table = "itens_peca_os" if kind == "peca" else "itens_servico_os"
         with self.database.transaction(write=True) as c:
+            self.actor(c, actor_id, admin=True)
             _, reason = self._prepare_items(c, actor_id, order_id, reason)
             item = c.execute(
                 f"SELECT * FROM {table} WHERE id=? AND os_id=?", (item_id, order_id)
@@ -193,9 +199,7 @@ class OrdemService(Service):
         except ValueError:
             raise ValidacaoError("Situação da OS inválida.") from None
         with self.database.transaction(write=True) as c:
-            action = (
-                "executar" if target in {StatusOS.EXECUCAO, StatusOS.CONCLUIDA} else "administrar"
-            )
+            action = "executar" if target == StatusOS.EXECUCAO else "administrar"
             order = self._access(c, actor_id, order_id, action)
             order.validar_transicao(target)
             if target == StatusOS.CANCELADA:
@@ -223,6 +227,49 @@ class OrdemService(Service):
                     (order_id,),
                 )
             self._status(c, order, target, actor_id, reason)
+            if target == StatusOS.AGUARDANDO:
+                from oficina.infrastructure.order_pdf import render_order_pdf
+
+                try:
+                    pdf = render_order_pdf(self._detail(c, actor_id, order_id))
+                except Exception as exc:
+                    raise PersistenciaError(
+                        "Não foi possível gerar o PDF. A OS continua em orçamento; tente novamente."
+                    ) from exc
+                c.execute(
+                    "INSERT INTO orcamentos_pdf(os_id,versao,arquivo,usuario_id) VALUES (?,(SELECT COALESCE(MAX(versao),0)+1 FROM orcamentos_pdf WHERE os_id=?),?,?)",
+                    (order_id, order_id, pdf, actor_id),
+                )
+
+    def item_catalog(self, actor_id: int, order_id: int) -> dict:
+        with self.database.transaction() as c:
+            order = self._access(c, actor_id, order_id, "adicionar_itens")
+            order.validar_edicao()
+            if (
+                self.actor(c, actor_id).perfil == Perfil.MECANICO
+                and order.status != StatusOS.ORCAMENTO
+            ):
+                raise PermissaoNegadaError(
+                    "O mecânico pode adicionar itens somente enquanto a OS estiver em orçamento."
+                )
+            return {
+                table: [
+                    dict(row)
+                    for row in c.execute(
+                        f"SELECT id,descricao,valor_centavos FROM {table} WHERE ativo=1 ORDER BY id"
+                    )
+                ]
+                for table in ("pecas", "servicos")
+            }
+
+    def approval_pdf(self, actor_id: int, order_id: int, history=False):
+        with self.database.transaction() as c:
+            self._detail(c, actor_id, order_id, history)
+            row = c.execute(
+                "SELECT versao,arquivo,data FROM orcamentos_pdf WHERE os_id=? ORDER BY versao DESC LIMIT 1",
+                (order_id,),
+            ).fetchone()
+            return dict(row) if row else None
 
     def update_service(self, actor_id: int, order_id: int, item_id: int, target: str):
         try:
@@ -272,7 +319,7 @@ class OrdemService(Service):
 
     def pay(self, actor_id: int, order_id: int, amount: int, method: str):
         v.integer(amount, "Valor do pagamento")
-        if method not in {"Pix", "Dinheiro", "Cartão", "Débito", "Sem cobrança"}:
+        if method not in {"Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "Sem cobrança"}:
             raise ValidacaoError("Selecione uma forma de pagamento válida.")
         with self.database.transaction(write=True) as c:
             self._access(c, actor_id, order_id, "administrar")
@@ -350,53 +397,54 @@ class OrdemService(Service):
 
     def detail(self, actor_id: int, order_id: int, history=False) -> dict:
         with self.database.transaction() as c:
-            actor = self.actor(c, actor_id)
-            repo = Repository(c)
-            order = repo.order(order_id)
-            allowed = actor.permite("visualizar", order.mecanico_id)
-            if history and actor.perfil == Perfil.MECANICO:
-                allowed = (
-                    c.execute(
-                        "SELECT 1 FROM ordens_servico WHERE veiculo_id=? AND mecanico_id=?",
-                        (order.veiculo_id, actor_id),
-                    ).fetchone()
-                    is not None
-                )
-            if not allowed:
-                raise PermissaoNegadaError("Você não possui acesso ao histórico deste veículo.")
-            result = {
-                "order": order,
-                "metadata": dict(repo.get("ordens_servico", order_id)),
-                "cliente": repo.get("clientes", order.cliente_id)["nome"],
-                "veiculo": dict(repo.get("veiculos", order.veiculo_id)),
-                "historico": [
-                    dict(r)
-                    for r in c.execute(
-                        "SELECT h.*,u.nome AS responsavel FROM historico_status_os h JOIN usuarios u ON u.id=h.usuario_id WHERE os_id=? ORDER BY h.id",
-                        (order_id,),
-                    )
-                ],
-                "auditoria": [
-                    dict(r)
-                    for r in c.execute(
-                        "SELECT a.*,u.nome AS responsavel FROM auditoria_os a JOIN usuarios u ON u.id=a.usuario_id WHERE os_id=? ORDER BY a.id DESC",
-                        (order_id,),
-                    )
-                ],
-            }
-            # Dados financeiros só são carregados para administradores.
-            result["fatura"] = result["pagamento"] = None
-            if actor.perfil == Perfil.ADMIN:
-                invoice = c.execute(
-                    "SELECT * FROM faturamentos WHERE os_id=?", (order_id,)
+            return self._detail(c, actor_id, order_id, history)
+
+    def _detail(self, c, actor_id, order_id, history=False):
+        actor = self.actor(c, actor_id)
+        repo = Repository(c)
+        order = repo.order(order_id)
+        allowed = actor.permite("visualizar", order.mecanico_id)
+        if history and actor.perfil == Perfil.MECANICO:
+            allowed = (
+                c.execute(
+                    "SELECT 1 FROM ordens_servico WHERE veiculo_id=? AND mecanico_id=?",
+                    (order.veiculo_id, actor_id),
                 ).fetchone()
-                result["fatura"] = dict(invoice) if invoice else None
-                payment = c.execute(
-                    "SELECT p.* FROM pagamentos p JOIN faturamentos f ON f.id=p.faturamento_id WHERE f.os_id=?",
+                is not None
+            )
+        if not allowed:
+            raise PermissaoNegadaError("Você não possui acesso ao histórico deste veículo.")
+        result = {
+            "order": order,
+            "metadata": dict(repo.get("ordens_servico", order_id)),
+            "cliente": repo.get("clientes", order.cliente_id)["nome"],
+            "veiculo": dict(repo.get("veiculos", order.veiculo_id)),
+            "historico": [
+                dict(r)
+                for r in c.execute(
+                    "SELECT h.*,u.nome AS responsavel FROM historico_status_os h JOIN usuarios u ON u.id=h.usuario_id WHERE os_id=? ORDER BY h.id",
                     (order_id,),
-                ).fetchone()
-                result["pagamento"] = dict(payment) if payment else None
-            return result
+                )
+            ],
+            "auditoria": [
+                dict(r)
+                for r in c.execute(
+                    "SELECT a.*,u.nome AS responsavel FROM auditoria_os a JOIN usuarios u ON u.id=a.usuario_id WHERE os_id=? ORDER BY a.id DESC",
+                    (order_id,),
+                )
+            ],
+        }
+        # Dados financeiros só são carregados para administradores.
+        result["fatura"] = result["pagamento"] = None
+        if actor.perfil == Perfil.ADMIN:
+            invoice = c.execute("SELECT * FROM faturamentos WHERE os_id=?", (order_id,)).fetchone()
+            result["fatura"] = dict(invoice) if invoice else None
+            payment = c.execute(
+                "SELECT p.* FROM pagamentos p JOIN faturamentos f ON f.id=p.faturamento_id WHERE f.os_id=?",
+                (order_id,),
+            ).fetchone()
+            result["pagamento"] = dict(payment) if payment else None
+        return result
 
     def export_pdf(self, actor_id: int, order_id: int, history=False) -> bytes:
         from oficina.infrastructure.order_pdf import render_order_pdf

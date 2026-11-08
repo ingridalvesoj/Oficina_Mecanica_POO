@@ -50,7 +50,6 @@ def test_errors_and_required_relations(system):
     order_id = create_order(s, mechanic=False)
     with pytest.raises(EstadoInvalidoError):
         s["orders"].transition(s["admin"], order_id, "Concluída")
-    s["orders"].transition(s["admin"], order_id, "Em orçamento")
     with pytest.raises(EstadoInvalidoError):
         s["orders"].transition(s["admin"], order_id, "Aguardando aprovação")
     s["orders"].add_service(s["admin"], order_id, s["service"])
@@ -64,7 +63,7 @@ def test_approval_invalidation_and_rollback(system):
     s = system
     oid = create_order(s)
     s["orders"].add_service(s["admin"], oid, s["service"])
-    for status in ("Em orçamento", "Aguardando aprovação", "Aprovada"):
+    for status in ("Aguardando aprovação", "Aprovada"):
         s["orders"].transition(s["admin"], oid, status)
     with pytest.raises(EstoqueInsuficienteError):
         s["orders"].add_part(s["admin"], oid, s["part"], 11)
@@ -109,7 +108,7 @@ def test_pending_services_and_execution_changes(system):
     service_id = s["orders"].add_service(s["admin"], oid, s["service"])
     execute_order(s, oid)
     with pytest.raises(EstadoInvalidoError):
-        s["orders"].transition(s["mechanic"], oid, "Concluída")
+        s["orders"].transition(s["admin"], oid, "Concluída")
     with pytest.raises(CampoObrigatorioError):
         s["orders"].add_part(s["admin"], oid, s["part"], 1)
     part = s["orders"].add_part(s["admin"], oid, s["part"], 1, "Necessidade identificada no reparo")
@@ -129,7 +128,7 @@ def test_permissions_and_historical_scope(system):
     with pytest.raises(PermissaoNegadaError):
         s["catalog"].list(s["mechanic"], "clientes")
     with pytest.raises(PermissaoNegadaError):
-        s["orders"].add_part(s["mechanic"], oid, s["part"], 1)
+        s["orders"].add_part(s["mechanic"], unassigned, s["part"], 1)
     with pytest.raises(PermissaoNegadaError):
         s["orders"].detail(s["mechanic"], unassigned)
     # Histórico de veículo relacionado pode ser consultado, sem liberar ações.
@@ -142,14 +141,13 @@ def test_permissions_and_historical_scope(system):
         {
             "nome": "Outro",
             "login": "outro",
-            "senha": "senha-teste-segura",
+            "senha": "Senha-teste-segura!",
             "perfil": Perfil.MECANICO,
         },
     )
     with pytest.raises(PermissaoNegadaError):
         s["orders"].detail(other, oid, history=True)
     s["orders"].add_service(s["admin"], oid, s["service"])
-    s["orders"].transition(s["admin"], oid, "Em orçamento")
     s["orders"].transition(s["admin"], oid, "Aguardando aprovação")
     with pytest.raises(PermissaoNegadaError):
         s["orders"].transition(s["mechanic"], oid, "Aprovada")
@@ -217,24 +215,24 @@ def test_finance_idempotence_and_closed_order(system):
 
 def test_authentication_and_last_admin(system):
     s = system
-    assert s["auth"].login(" ADMIN ", "senha-teste-segura").id == s["admin"]
+    assert s["auth"].login(" ADMIN ", "Senha-teste-segura!").id == s["admin"]
     with pytest.raises(PermissaoNegadaError):
         s["auth"].login("admin", "incorreta")
     with pytest.raises(PermissaoNegadaError):
         s["auth"].login("inexistente", "incorreta")
     with pytest.raises(EstadoInvalidoError):
-        s["auth"].bootstrap("Outro", "outro", "senha-teste-segura")
+        s["auth"].bootstrap("Outro", "outro", "Senha-teste-segura!")
     with pytest.raises(EstadoInvalidoError):
         s["catalog"].set_active(s["admin"], "usuarios", s["admin"], False)
     with pytest.raises(EstadoInvalidoError):
         s["catalog"].delete(s["admin"], "usuarios", s["admin"])
     s["catalog"].set_active(s["admin"], "usuarios", s["mechanic"], False)
     with pytest.raises(PermissaoNegadaError):
-        s["auth"].login("mecanico", "senha-teste-segura")
+        s["auth"].login("mecanico", "Senha-teste-segura!")
     with pytest.raises(PermissaoNegadaError):
         s["orders"].list(s["mechanic"])
     with s["db"].transaction() as c:
         stored = c.execute("SELECT senha_hash FROM usuarios WHERE id=?", (s["admin"],)).fetchone()[
             0
         ]
-        assert stored.startswith("pbkdf2_sha256$") and "senha-teste-segura" not in stored
+        assert stored.startswith("pbkdf2_sha256$") and "Senha-teste-segura!" not in stored

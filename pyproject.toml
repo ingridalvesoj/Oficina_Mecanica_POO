@@ -13,7 +13,7 @@ dependencies = ["streamlit==1.66.1", "reportlab==5.1.0"]
 dev = ["pytest==9.2.0", "ruff==0.17.3", "pypdf==6.21.4", "pypdfium2==5.14.0"]
 
 [tool.setuptools.package-data]
-oficina = ["ui/*.js"]
+oficina = ["ui/*.js", "assets/*.png"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

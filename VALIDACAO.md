@@ -12,7 +12,7 @@
 - **35 testes automatizados aprovados**: domínio, persistência, regras de negócio e interface.
 - **Ruff:** análise estática sem erros e código formatado.
 - **Servidor local:** endpoint de saúde respondendo HTTP 200.
-- **Revisão visual:** tela de primeiro acesso carregada no navegador.
+- **Revisão visual:** login e OS conferidos no navegador, incluindo logo, botões rosa, envio para aprovação, download gerado e retorno ao orçamento. PDF renderizado e inspecionado.
 
 ## Cenários verificados
 
@@ -34,10 +34,18 @@
 - Faturamento, pagamento e entrega duplicados são recusados.
 - Mecânico não aprova, fatura, altera cadastros nem acessa veículos sem relação com suas OS.
 - Usuário inativo perde acesso; último administrador ativo é protegido.
+- Senhas novas exigem oito caracteres, maiúscula, minúscula e caractere especial.
+- OS começa em orçamento, sem transição adicional de início.
+- Envio para aprovação gera uma versão persistente do PDF com a logo; falha de geração reverte também a situação e o histórico.
+- Retorno ao orçamento mantém reservas e permite novas inclusões pelo mecânico responsável; reenvio preserva a versão anterior do PDF.
+- Mecânico finaliza serviços, mas não conclui a OS, não remove itens e não adiciona itens fora do orçamento ou em OS de outro responsável.
+- Saída de estoque recusa saldo insuficiente, protege reservas e resiste a retiradas concorrentes.
+- Migração preserva movimentos e converte OS antigas abertas, registrando a adequação no histórico.
+- Interface de entrada/saída, ausência da numeração das faturas e download do orçamento gerado.
 
 ## Limites da verificação
 
-Os fluxos autenticados foram exercitados com o AppTest do Streamlit; a inspeção visual no navegador foi feita na tela inicial. Não foi executado teste de carga de produção nem implantação remota. Os testes trabalham exclusivamente com bancos temporários e dados fictícios.
+Os fluxos autenticados foram exercitados com o AppTest do Streamlit e a revisão visual usou uma base isolada no navegador. Não foi executado teste de carga de produção nem implantação remota. Os testes trabalham exclusivamente com bancos temporários e dados fictícios; o banco operacional não foi usado para testes.
 
 ## Reproduzir
 

@@ -10,14 +10,14 @@ from oficina.infrastructure.database import Database
 from oficina.infrastructure.security import hash_password, verify_password
 
 
-@pytest.mark.parametrize("password", ["Senha12!", "abc1234@", "abcdefgh#"])
+@pytest.mark.parametrize("password", ["Senha12!", "Abc1234@", "Abcdefgh#"])
 def test_new_password_policy(password):
     assert verify_password(password, hash_password(password))
 
 
 @pytest.mark.parametrize("password", ["abc123!", "abcdefgh", "abcdefgh "])
 def test_reject_password_without_minimum_or_symbol(password):
-    with pytest.raises(ValidacaoError, match="mínimo 8 caracteres e um caractere especial"):
+    with pytest.raises(ValidacaoError, match="mínimo 8 caracteres"):
         hash_password(password)
 
 

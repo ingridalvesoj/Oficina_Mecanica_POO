@@ -13,8 +13,8 @@ _popup = components.component(
           box-shadow:0 6px 24px #84234e22;font:14px/1.5 sans-serif;
           max-width:min(420px, calc(100vw - 40px));box-sizing:border-box;}
         aside[hidden] {display:none;}
-        button {position:absolute;right:10px;top:8px;border:0;background:transparent;
-          color:#84234e;cursor:pointer;font-size:22px;}
+        button {position:absolute;right:10px;top:8px;border:0;background:#b52d70;
+          color:white;cursor:pointer;font-size:22px;border-radius:6px;}
     """,
     js="""
         export default function({parentElement, data}) {

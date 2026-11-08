@@ -37,7 +37,11 @@ class Mecanico(Usuario):
         return Perfil.MECANICO
 
     def permite(self, action: str, responsible_id: int | None = None) -> bool:
-        return self.ativo and action in {"visualizar", "executar"} and responsible_id == self.id
+        return (
+            self.ativo
+            and action in {"visualizar", "executar", "adicionar_itens"}
+            and responsible_id == self.id
+        )
 
 
 @dataclass(frozen=True)
@@ -126,7 +130,7 @@ class OrdemServico:
         allowed = {
             StatusOS.ABERTA: {StatusOS.ORCAMENTO, StatusOS.CANCELADA},
             StatusOS.ORCAMENTO: {StatusOS.AGUARDANDO, StatusOS.CANCELADA},
-            StatusOS.AGUARDANDO: {StatusOS.APROVADA, StatusOS.CANCELADA},
+            StatusOS.AGUARDANDO: {StatusOS.ORCAMENTO, StatusOS.APROVADA, StatusOS.CANCELADA},
             StatusOS.APROVADA: {StatusOS.EXECUCAO, StatusOS.CANCELADA},
             StatusOS.EXECUCAO: {StatusOS.CONCLUIDA},
         }

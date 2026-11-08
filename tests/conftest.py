@@ -13,7 +13,7 @@ def system(tmp_path):
     db = Database(tmp_path / "test.sqlite3")
     db.migrate()
     auth = AuthService(db)
-    admin = auth.bootstrap("Administrador de teste", "admin", "senha-teste-segura")
+    admin = auth.bootstrap("Administrador de teste", "admin", "Senha-teste-segura!")
     catalog, stock, orders = CadastroService(db), EstoqueService(db), OrdemService(db)
     mechanic = catalog.save(
         admin,
@@ -21,7 +21,7 @@ def system(tmp_path):
         {
             "nome": "Mecânico teste",
             "login": "mecanico",
-            "senha": "senha-teste-segura",
+            "senha": "Senha-teste-segura!",
             "perfil": Perfil.MECANICO,
         },
     )
@@ -68,7 +68,7 @@ def create_order(s, mechanic=True):
 
 
 def execute_order(s, order_id):
-    for status in ("Em orçamento", "Aguardando aprovação", "Aprovada", "Em execução"):
+    for status in ("Aguardando aprovação", "Aprovada", "Em execução"):
         s["orders"].transition(s["admin"], order_id, status)
 
 
@@ -77,4 +77,4 @@ def complete_order(s, order_id):
     for item in s["orders"].detail(s["admin"], order_id)["order"].servicos:
         s["orders"].update_service(s["mechanic"], order_id, item.id, "Em execução")
         s["orders"].update_service(s["mechanic"], order_id, item.id, "Finalizado")
-    s["orders"].transition(s["mechanic"], order_id, "Concluída")
+    s["orders"].transition(s["admin"], order_id, "Concluída")

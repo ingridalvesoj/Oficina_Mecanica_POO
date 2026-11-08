@@ -46,7 +46,11 @@ def render_orders(actor, catalog, orders, history=False, finance=False):
                 )
     c1, c2 = st.columns([2, 1])
     search = c1.text_input("Pesquisar por cliente, CPF ou placa")
-    status = c2.selectbox("Situação", [""] + list(StatusOS), format_func=lambda x: x or "Todas")
+    status = c2.selectbox(
+        "Situação",
+        [""] + [status for status in StatusOS if status != StatusOS.ABERTA],
+        format_func=lambda x: x or "Todas",
+    )
     rows = orders.list(actor.id, search, status, history=history)
     if finance:
         rows = [r for r in rows if r["status"] == StatusOS.CONCLUIDA]
@@ -109,6 +113,16 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
         key=f"pdf_{key}",
         on_click="ignore",
     )
+    proposal = orders.approval_pdf(actor.id, order_id, history=read_only)
+    if proposal:
+        st.download_button(
+            f"Baixar PDF do último orçamento enviado (versão {proposal['versao']})",
+            data=proposal["arquivo"],
+            file_name=f"orcamento-os-{order_id}-v{proposal['versao']}.pdf",
+            mime="application/pdf",
+            key=f"proposal_{key}",
+            on_click="ignore",
+        )
     labels = ["Peças e serviços", "Andamento"]
     if admin:
         labels.append("Faturamento")
@@ -138,18 +152,22 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                 )
         if editable:
             next_actions = {
-                StatusOS.ABERTA: [("Iniciar orçamento", StatusOS.ORCAMENTO)],
-                StatusOS.ORCAMENTO: [("Enviar para aprovação", StatusOS.AGUARDANDO)],
-                StatusOS.AGUARDANDO: [("Aprovar orçamento", StatusOS.APROVADA)],
+                StatusOS.ORCAMENTO: [("Enviar para aprovação do cliente", StatusOS.AGUARDANDO)],
+                StatusOS.AGUARDANDO: [
+                    ("Aprovar orçamento", StatusOS.APROVADA),
+                    ("Voltar ao orçamento", StatusOS.ORCAMENTO),
+                ],
                 StatusOS.APROVADA: [("Iniciar execução", StatusOS.EXECUCAO)],
                 StatusOS.EXECUCAO: [("Concluir OS", StatusOS.CONCLUIDA)],
             }
             for label, target in next_actions.get(order.status, []):
-                if admin or target in {StatusOS.EXECUCAO, StatusOS.CONCLUIDA}:
+                if admin or target == StatusOS.EXECUCAO:
                     if st.button(label, type="primary", key=f"transition_{target}_{key}"):
                         execute(
                             lambda: orders.transition(actor.id, order_id, target),
-                            "Situação da OS atualizada.",
+                            "OS enviada para aprovação do cliente. PDF gerado e disponível para baixar."
+                            if target == StatusOS.AGUARDANDO
+                            else "Situação da OS atualizada.",
                         )
             if order.status == StatusOS.EXECUCAO:
                 for service in order.servicos:
@@ -212,9 +230,7 @@ def render_finance(actor, orders, detail, read_only, key):
     order = detail["order"]
     invoice, payment = detail["fatura"], detail["pagamento"]
     if invoice:
-        st.write(
-            f"Fatura #{invoice['id']} · {money(invoice['valor_centavos'])} · {date_display(invoice['data'])}"
-        )
+        st.write(f"Fatura · {money(invoice['valor_centavos'])} · {date_display(invoice['data'])}")
     else:
         st.info("Esta OS ainda não foi faturada.")
     if payment:
@@ -232,7 +248,7 @@ def render_finance(actor, orders, detail, read_only, key):
             )
             method = st.selectbox(
                 "Forma de pagamento",
-                ["Sem cobrança"] if total == 0 else ["Pix", "Dinheiro", "Cartão", "Débito"],
+                ["Sem cobrança"] if total == 0 else ["Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito"],
             )
             confirmed = st.checkbox("Confirmo o recebimento do valor informado")
             submitted = st.form_submit_button("Registrar pagamento")
@@ -279,12 +295,12 @@ def render_items(actor, catalog, orders, order, editable, key):
         for s in order.servicos
     ]
     table(rows, "Nenhuma peça ou serviço adicionado à ordem.")
-    if not admin or not editable:
+    if not editable or (not admin and order.status != StatusOS.ORCAMENTO):
         return
     removable = [("peca", p.id, p.descricao) for p in order.pecas if not p.consumido] + [
         ("servico", s.id, s.descricao) for s in order.servicos if s.status == StatusServico.PENDENTE
     ]
-    if removable:
+    if admin and removable:
         with st.expander("Remover um item adicionado"):
             with st.form(f"remove_{key}"):
                 item = st.selectbox(
@@ -306,16 +322,14 @@ def render_items(actor, catalog, orders, order, editable, key):
                         "Item removido.",
                     )
     st.subheader("Adicione os Itens à Ordem Serviço")
-    parts = catalog.list(actor.id, "pecas", active_only=True)
-    services = catalog.list(actor.id, "servicos", active_only=True)
+    available = orders.item_catalog(actor.id, order.id)
+    parts, services = available["pecas"], available["servicos"]
     part_column, service_column = st.columns(2)
     with part_column:
         with st.form(f"add_part_{key}"):
             part_id = select_record("Peça", parts, "descricao")
             quantity = st.number_input("Quantidade", 1, 1_000_000, 1, step=1)
-            reason = st.text_input(
-                "Justificativa", key=f"part_reason_{key}"
-            )
+            reason = st.text_input("Justificativa", key=f"part_reason_{key}")
             add_part = st.form_submit_button("Adicionar peça", disabled=part_id is None)
         if add_part:
             execute(
@@ -325,9 +339,7 @@ def render_items(actor, catalog, orders, order, editable, key):
     with service_column:
         with st.form(f"add_service_{key}"):
             service_id = select_record("Serviço", services, "descricao")
-            service_reason = st.text_input(
-                "Justificativa", key=f"service_reason_{key}"
-            )
+            service_reason = st.text_input("Justificativa", key=f"service_reason_{key}")
             add_service = st.form_submit_button("Adicionar serviço", disabled=service_id is None)
         if add_service:
             execute(

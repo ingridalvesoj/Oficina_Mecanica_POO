@@ -8,8 +8,15 @@ ITERATIONS = 600_000
 
 
 def hash_password(password: str) -> str:
-    if len(password) < 8 or not any(not char.isalnum() and not char.isspace() for char in password):
-        raise ValidacaoError("A senha deve ter no mínimo 8 caracteres e um caractere especial.")
+    if (
+        len(password) < 8
+        or not any(char.isupper() for char in password)
+        or not any(char.islower() for char in password)
+        or not any(not char.isalnum() and not char.isspace() for char in password)
+    ):
+        raise ValidacaoError(
+            "A senha deve ter no mínimo 8 caracteres, uma letra maiúscula, uma minúscula e um caractere especial."
+        )
     if len(password) > 128:
         raise ValidacaoError("A senha informada é muito longa. Escolha uma senha mais curta.")
     salt = secrets.token_hex(16)

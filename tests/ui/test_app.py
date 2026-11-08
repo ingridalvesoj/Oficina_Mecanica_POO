@@ -1,6 +1,6 @@
 import json
 
-from conftest import create_order
+from conftest import create_order, execute_order
 from streamlit.testing.v1 import AppTest
 
 from oficina.config import ROOT
@@ -35,8 +35,8 @@ def test_first_access_login_and_logout(tmp_path, monkeypatch):
     assert not app.exception
     widget(app.text_input, "Nome do administrador *").input("Administrador")
     widget(app.text_input, "Login *").input("admin")
-    widget(app.text_input, "Senha *").input("senha-teste-segura")
-    widget(app.text_input, "Confirmar senha *").input("senha-teste-segura")
+    widget(app.text_input, "Senha *").input("Senha-teste-segura!")
+    widget(app.text_input, "Confirmar senha *").input("Senha-teste-segura!")
     widget(app.button, "Criar administrador").click().run()
     assert not app.error
     assert confirmation(app) == "Administrador criado. Entre com suas credenciais."
@@ -46,7 +46,7 @@ def test_first_access_login_and_logout(tmp_path, monkeypatch):
     widget(app.text_input, "Senha").input("incorreta")
     widget(app.button, "Entrar").click().run()
     assert app.error
-    widget(app.text_input, "Senha").input("senha-teste-segura")
+    widget(app.text_input, "Senha").input("Senha-teste-segura!")
     widget(app.button, "Entrar").click().run()
     assert not app.error
     assert app.title[1].value == "Visão geral da oficina" or any(
@@ -134,8 +134,7 @@ def test_full_order_through_interface(system, monkeypatch):
     app.session_state[f"tabs_os_{oid}"] = "Andamento"
     app.run()
     for label in [
-        "Iniciar orçamento",
-        "Enviar para aprovação",
+        "Enviar para aprovação do cliente",
         "Aprovar orçamento",
         "Iniciar execução",
     ]:
@@ -146,6 +145,8 @@ def test_full_order_through_interface(system, monkeypatch):
     next(b for b in app.button if b.label.startswith("Finalizar serviço ·")).click().run()
     widget(app.button, "Concluir OS").click().run()
     widget(app.button, "Faturar OS").click().run()
+    assert any("Fatura ·" in m.value for m in app.markdown)
+    assert not any("Fatura #" in m.value for m in app.markdown)
     assert "Débito" in widget(app.selectbox, "Forma de pagamento").options
     assert "Transferência" not in widget(app.selectbox, "Forma de pagamento").options
     widget(app.checkbox, "Confirmo o recebimento do valor informado").check()
@@ -174,13 +175,66 @@ def test_edit_vehicle_preserves_inactive_owner(system, monkeypatch):
 
 def test_order_stays_open_when_status_leaves_filter(system, monkeypatch):
     oid = create_order(system)
+    system["orders"].add_service(system["admin"], oid, system["service"])
     app = app_for(system, monkeypatch)
     widget(app.radio, "Navegação").set_value("Ordens de serviço").run()
-    widget(app.selectbox, "Situação").set_value("Aberta").run()
+    widget(app.selectbox, "Situação").set_value("Em orçamento").run()
     app.session_state[f"tabs_os_{oid}"] = "Andamento"
     app.run()
-    widget(app.button, "Iniciar orçamento").click().run()
+    widget(app.button, "Enviar para aprovação do cliente").click().run()
     assert not app.error
     assert widget(app.selectbox, "Abrir detalhes da OS").value == oid
     assert app.session_state[f"tabs_os_{oid}"] == "Andamento"
-    assert widget(app.button, "Enviar para aprovação")
+    assert widget(app.button, "Aprovar orçamento")
+
+
+def test_stock_entry_and_exit_interface(system, monkeypatch):
+    app = app_for(system, monkeypatch)
+    widget(app.radio, "Navegação").set_value("Peças e estoque").run()
+    widget(app.selectbox, "Tipo de movimentação").set_value("Saída")
+    widget(app.number_input, "Quantidade da movimentação").set_value(3)
+    widget(app.button, "Registrar movimentação").click().run()
+    assert not app.error
+    assert system["stock"].balances(system["admin"])[0]["estoque"] == 7
+    widget(app.number_input, "Quantidade da movimentação").set_value(2)
+    widget(app.button, "Registrar movimentação").click().run()
+    assert not app.error
+    assert system["stock"].balances(system["admin"])[0]["estoque"] == 9
+
+
+def test_mechanic_additions_reappear_after_rejection(system, monkeypatch):
+    s = system
+    oid = create_order(s)
+    app = app_for(s, monkeypatch, "mechanic")
+    widget(app.radio, "Navegação").set_value("Ordens de serviço").run()
+    widget(app.button, "Adicionar peça").click().run()
+    widget(app.button, "Adicionar serviço").click().run()
+    assert not app.error
+    s["orders"].transition(s["admin"], oid, "Aguardando aprovação")
+    app.run()
+    assert not any(b.label == "Adicionar peça" for b in app.button)
+    assert not any(b.label == "Voltar ao orçamento" for b in app.button)
+    s["orders"].transition(s["admin"], oid, "Em orçamento")
+    app.run()
+    assert widget(app.button, "Adicionar peça")
+    execute_order(s, oid)
+    app.run()
+    assert not any(b.label == "Concluir OS" for b in app.button)
+    next(b for b in app.button if b.label.startswith("Iniciar serviço ·")).click().run()
+    next(b for b in app.button if b.label.startswith("Finalizar serviço ·")).click().run()
+    assert not app.error
+    assert s["orders"].detail(s["admin"], oid)["order"].status == "Em execução"
+
+
+def test_approval_return_and_generated_download(system, monkeypatch):
+    oid = create_order(system)
+    system["orders"].add_service(system["admin"], oid, system["service"])
+    app = app_for(system, monkeypatch)
+    widget(app.radio, "Navegação").set_value("Ordens de serviço").run()
+    assert not any(b.label == "Iniciar orçamento" for b in app.button)
+    widget(app.button, "Enviar para aprovação do cliente").click().run()
+    assert not app.error
+    assert any("último orçamento enviado" in b.label for b in app.get("download_button"))
+    widget(app.button, "Voltar ao orçamento").click().run()
+    assert not app.error
+    assert widget(app.button, "Enviar para aprovação do cliente")
