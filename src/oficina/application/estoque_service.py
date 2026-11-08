@@ -5,9 +5,9 @@ from .base import Service
 
 
 class EstoqueService(Service):
-    def enter(self, actor_id: int, part_id: int, quantity: int, reason: str):
+    def enter(self, actor_id: int, part_id: int, quantity: int, reason: str = ""):
         quantity = v.integer(quantity, "Quantidade", 1)
-        reason = v.required(reason, "a justificativa da entrada")
+        reason = str(reason or "").strip()
         with self.database.transaction(write=True) as c:
             self.actor(c, actor_id, admin=True)
             part = Repository(c).get("pecas", part_id)
@@ -25,7 +25,7 @@ class EstoqueService(Service):
             repo = Repository(c)
             return [
                 dict(r) | {"disponivel": repo.available(r["id"])}
-                for r in c.execute("SELECT * FROM pecas ORDER BY descricao")
+                for r in c.execute("SELECT * FROM pecas ORDER BY id")
             ]
 
     def history(self, actor_id: int) -> list[dict]:

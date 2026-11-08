@@ -272,7 +272,7 @@ class OrdemService(Service):
 
     def pay(self, actor_id: int, order_id: int, amount: int, method: str):
         v.integer(amount, "Valor do pagamento")
-        if method not in {"Pix", "Dinheiro", "Cartão", "Transferência", "Sem cobrança"}:
+        if method not in {"Pix", "Dinheiro", "Cartão", "Débito", "Sem cobrança"}:
             raise ValidacaoError("Selecione uma forma de pagamento válida.")
         with self.database.transaction(write=True) as c:
             self._access(c, actor_id, order_id, "administrar")
@@ -397,3 +397,10 @@ class OrdemService(Service):
                 ).fetchone()
                 result["pagamento"] = dict(payment) if payment else None
             return result
+
+    def export_pdf(self, actor_id: int, order_id: int, history=False) -> bytes:
+        from oficina.infrastructure.order_pdf import render_order_pdf
+
+        # A autorização é a mesma da consulta, inclusive para o histórico do mecânico.
+        detail = self.detail(actor_id, order_id, history=history)
+        return render_order_pdf(detail)

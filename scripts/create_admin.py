@@ -15,7 +15,7 @@ if __name__ == "__main__":
         database.migrate()
         name = input("Nome: ")
         login = input("Login: ")
-        password = getpass.getpass("Senha (mínimo de 10 caracteres): ")
+        password = getpass.getpass("Senha (mínimo de 8 caracteres e um caractere especial): ")
         if password != getpass.getpass("Confirme a senha: "):
             raise OficinaError("As senhas não coincidem.")
         AuthService(database).bootstrap(name, login, password)

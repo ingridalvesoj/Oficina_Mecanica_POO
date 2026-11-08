@@ -6,6 +6,7 @@ from oficina.domain.enums import Perfil
 from oficina.domain.validators import cents
 
 from .components import execute, select_record, table
+from .masked_input import masked_input
 
 LABELS = {
     "clientes": "Clientes",
@@ -34,7 +35,7 @@ def render_catalog(actor, catalog, stock, name):
     selected = st.selectbox(
         "Cadastro para editar",
         options,
-        format_func=lambda x: "Novo cadastro" if x is None else f"#{x} · {mapping[x][label_field]}",
+        format_func=lambda x: "Novo cadastro" if x is None else str(mapping[x][label_field]),
         key=f"edit_{name}",
     )
     previous = mapping.get(selected, {})
@@ -45,8 +46,12 @@ def render_catalog(actor, catalog, stock, name):
         if name in {"clientes", "usuarios"}:
             data["nome"] = st.text_input("Nome *", previous.get("nome", ""))
         if name == "clientes":
-            data["cpf"] = st.text_input("CPF *", previous.get("cpf", ""))
-            data["telefone"] = st.text_input("Telefone", previous.get("telefone", ""))
+            data["cpf"] = masked_input(
+                "CPF *", previous.get("cpf", ""), kind="cpf", key=f"cpf_{key}"
+            )
+            data["telefone"] = masked_input(
+                "Telefone", previous.get("telefone", ""), kind="phone", key=f"phone_{key}"
+            )
             data["email"] = st.text_input("E-mail", previous.get("email", ""))
         elif name == "usuarios":
             data["login"] = st.text_input("Login *", previous.get("login", ""))
@@ -57,7 +62,7 @@ def render_catalog(actor, catalog, stock, name):
             data["senha"] = st.text_input(
                 "Senha *" if selected is None else "Nova senha (deixe vazio para manter)",
                 type="password",
-                help="Entre 10 e 128 caracteres.",
+                help="Mínimo de 8 caracteres e um caractere especial.",
             )
         elif name == "veiculos":
             owners = [
@@ -71,12 +76,9 @@ def render_catalog(actor, catalog, stock, name):
             data["placa"] = st.text_input("Placa *", previous.get("placa", ""))
             data["marca"] = st.text_input("Marca *", previous.get("marca", ""))
             data["modelo"] = st.text_input("Modelo *", previous.get("modelo", ""))
-            data["ano"] = st.number_input(
-                "Ano *",
-                1886,
-                date.today().year + 1,
-                value=previous.get("ano", date.today().year),
-                step=1,
+            years = list(range(date.today().year + 1, 1885, -1))
+            data["ano"] = st.selectbox(
+                "Ano *", years, index=years.index(previous.get("ano", date.today().year))
             )
         else:
             data["descricao"] = st.text_input("Descrição *", previous.get("descricao", ""))
@@ -125,7 +127,7 @@ def render_catalog(actor, catalog, stock, name):
             )
             quantity = st.number_input("Quantidade de entrada", 1, 1_000_000, 1, step=1)
             reason = st.text_input(
-                "Justificativa da entrada *", placeholder="Ex.: compra de reposição"
+                "Justificativa da entrada (opcional)", placeholder="Ex.: compra de reposição"
             )
             submitted = st.form_submit_button("Registrar entrada", disabled=part_id is None)
         if submitted:

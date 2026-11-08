@@ -9,7 +9,7 @@ from oficina.infrastructure.security import hash_password, verify_password
 from .base import Service
 
 # Mesmo custo de verificação para login inexistente; nunca é uma credencial utilizável.
-_DUMMY_HASH = hash_password(secrets.token_urlsafe(24))
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(24) + "!")
 
 
 class AuthService(Service):

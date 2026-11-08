@@ -100,11 +100,7 @@ def select_record(label, records, label_field="nome", key=None, optional=False, 
         return None
 
     def format_option(record_id):
-        return (
-            "Não atribuído"
-            if record_id is None
-            else f"#{record_id} · {mapping[record_id][label_field]}"
-        )
+        return "Não atribuído" if record_id is None else str(mapping[record_id][label_field])
 
     index = options.index(current) if current in options else 0
     return st.selectbox(label, options, index=index, format_func=format_option, key=key)

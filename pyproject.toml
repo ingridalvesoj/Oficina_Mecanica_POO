@@ -7,10 +7,13 @@ name = "oficina-os"
 version = "1.0.0"
 description = "Gestão de oficina mecânica com Python, SQLite e Streamlit"
 requires-python = ">=3.11"
-dependencies = ["streamlit==1.66.1"]
+dependencies = ["streamlit==1.66.1", "reportlab==5.1.0"]
 
 [project.optional-dependencies]
-dev = ["pytest==9.2.0", "ruff==0.17.3"]
+dev = ["pytest==9.2.0", "ruff==0.17.3", "pypdf==6.21.4", "pypdfium2==5.14.0"]
+
+[tool.setuptools.package-data]
+oficina = ["ui/*.js"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,6 +1,7 @@
 import streamlit as st
 
 from oficina.domain.enums import Perfil, StatusOS, StatusServico
+from oficina.domain.exceptions import PermissaoNegadaError, RegistroNaoEncontradoError
 from oficina.domain.validators import cents
 
 from .components import date_display, execute, money, select_record, table
@@ -50,12 +51,30 @@ def render_orders(actor, catalog, orders, history=False, finance=False):
     if finance:
         rows = [r for r in rows if r["status"] == StatusOS.CONCLUIDA]
     table(rows)
-    if not rows:
+    selection_key = f"order_pick_{history}_{finance}"
+    current = st.session_state.get(selection_key)
+    options = [
+        {"id": r["id"], "nome": f"{r['placa']} · {r['cliente']} · {r['status']}"} for r in rows
+    ]
+    if current is not None and current not in [r["id"] for r in rows]:
+        try:
+            selected = orders.detail(actor.id, current, history=history)
+        except (PermissaoNegadaError, RegistroNaoEncontradoError):
+            st.session_state.pop(selection_key, None)
+        else:
+            options.append(
+                {
+                    "id": current,
+                    "nome": f"{selected['veiculo']['placa']} · {selected['cliente']} · {selected['order'].status} (fora do filtro)",
+                }
+            )
+            st.caption("A OS selecionada permanece aberta, mesmo após sair do filtro atual.")
+    if not options:
         return
     chosen = select_record(
         "Abrir detalhes da OS",
-        [{"id": r["id"], "nome": f"{r['placa']} · {r['cliente']} · {r['status']}"} for r in rows],
-        key=f"order_pick_{history}_{finance}",
+        options,
+        key=selection_key,
     )
     if chosen is not None:
         render_detail(actor, catalog, orders, chosen, history)
@@ -66,8 +85,7 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
     order = detail["order"]
     meta = detail["metadata"]
     admin = actor.perfil == Perfil.ADMIN
-    revision = st.session_state.get("revision", 0)
-    key = f"os_{order_id}_{revision}"
+    key = f"os_{order_id}"
     st.divider()
     st.subheader(f"OS #{order_id} · {detail['veiculo']['placa']}")
     c1, c2, c3 = st.columns(3)
@@ -82,98 +100,24 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
     st.write("**Problema relatado**")
     st.text(order.problema)
     if meta["data_entrega"]:
-        st.success(f"Veículo entregue em {date_display(meta['data_entrega'])}.")
-    tab_items, tab_flow, tab_finance, tab_history = st.tabs(
-        ["Peças e serviços", "Andamento", "Faturamento", "Histórico e solicitações"]
+        st.caption(f"Entrega registrada em {date_display(meta['data_entrega'])}.")
+    st.download_button(
+        "Baixar ordem de serviço em PDF",
+        data=orders.export_pdf(actor.id, order_id, history=read_only),
+        file_name=f"ordem-servico-{order_id}.pdf",
+        mime="application/pdf",
+        key=f"pdf_{key}",
+        on_click="ignore",
     )
+    labels = ["Peças e serviços", "Andamento"]
+    if admin:
+        labels.append("Faturamento")
+    labels.append("Histórico e solicitações")
+    tabs = dict(zip(labels, st.tabs(labels, key=f"tabs_{key}", on_change="rerun")))
+    tab_flow, tab_history = tabs["Andamento"], tabs["Histórico e solicitações"]
     editable = order.status not in {StatusOS.CONCLUIDA, StatusOS.CANCELADA} and not read_only
-    with tab_items:
-        st.markdown("**Peças**")
-        table(
-            [
-                {
-                    "id": p.id,
-                    "descricao": p.descricao,
-                    "quantidade": p.quantidade,
-                    "valor_centavos": p.valor_centavos,
-                    "subtotal_centavos": p.subtotal,
-                    "situacao": "Consumida"
-                    if p.consumido
-                    else "Reserva liberada"
-                    if order.status == StatusOS.CANCELADA
-                    else "Reservada",
-                }
-                for p in order.pecas
-            ],
-            "Nenhuma peça adicionada.",
-        )
-        st.markdown("**Serviços**")
-        table(
-            [
-                {
-                    "id": s.id,
-                    "descricao": s.descricao,
-                    "valor_centavos": s.valor_centavos,
-                    "situacao": str(s.status),
-                }
-                for s in order.servicos
-            ],
-            "Nenhum serviço adicionado.",
-        )
-        if admin and editable:
-            parts = catalog.list(actor.id, "pecas", active_only=True)
-            services = catalog.list(actor.id, "servicos", active_only=True)
-            with st.form(f"add_part_{key}"):
-                part_id = select_record("Peça", parts, "descricao")
-                quantity = st.number_input("Quantidade", 1, 1_000_000, 1, step=1)
-                reason = st.text_input(
-                    "Justificativa (obrigatória durante a execução)", key=f"part_reason_{key}"
-                )
-                add_part = st.form_submit_button("Adicionar peça", disabled=part_id is None)
-            if add_part:
-                execute(
-                    lambda: orders.add_part(actor.id, order_id, part_id, quantity, reason),
-                    "Peça adicionada à OS.",
-                )
-            with st.form(f"add_service_{key}"):
-                service_id = select_record("Serviço", services, "descricao")
-                service_reason = st.text_input(
-                    "Justificativa (obrigatória durante a execução)", key=f"service_reason_{key}"
-                )
-                add_service = st.form_submit_button(
-                    "Adicionar serviço", disabled=service_id is None
-                )
-            if add_service:
-                execute(
-                    lambda: orders.add_service(actor.id, order_id, service_id, service_reason),
-                    "Serviço adicionado à OS.",
-                )
-            items = [("peca", p.id, p.descricao) for p in order.pecas if not p.consumido] + [
-                ("servico", s.id, s.descricao)
-                for s in order.servicos
-                if s.status == StatusServico.PENDENTE
-            ]
-            if items:
-                with st.form(f"remove_{key}"):
-                    item = st.selectbox(
-                        "Item para remover", items, format_func=lambda i: f"{i[0]} #{i[1]} · {i[2]}"
-                    )
-                    removal_reason = st.text_input("Justificativa da remoção")
-                    confirm = st.checkbox("Confirmo a remoção do item")
-                    remove = st.form_submit_button("Remover item")
-                if remove:
-                    if not confirm:
-                        st.error("Confirme a remoção do item.")
-                    else:
-                        execute(
-                            lambda: orders.remove_item(
-                                actor.id, order_id, item[0], item[1], removal_reason
-                            ),
-                            "Item removido.",
-                        )
-            st.caption(
-                "Alterar itens antes da execução devolve orçamentos pendentes ou aprovados para nova revisão. Peças consumidas e serviços iniciados não podem ser removidos."
-            )
+    with tabs["Peças e serviços"]:
+        render_items(actor, catalog, orders, order, editable, key)
     with tab_flow:
         if admin and editable:
             mechanics = [
@@ -218,7 +162,7 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                     )
                     label = "Iniciar" if target == StatusServico.EXECUCAO else "Finalizar"
                     if st.button(
-                        f"{label} serviço #{service.id} · {service.descricao}",
+                        f"{label} serviço · {service.descricao}",
                         key=f"service_{service.id}_{key}",
                     ):
                         execute(
@@ -245,10 +189,8 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                             )
         else:
             st.info("Consulta do atendimento. Não há ações de andamento disponíveis nesta tela.")
-    with tab_finance:
-        if not admin:
-            st.info("Faturamento disponível apenas para administradores.")
-        else:
+    if admin:
+        with tabs["Faturamento"]:
             render_finance(actor, orders, detail, read_only, key)
     with tab_history:
         st.markdown("**Mudanças de situação**")
@@ -270,13 +212,13 @@ def render_finance(actor, orders, detail, read_only, key):
     order = detail["order"]
     invoice, payment = detail["fatura"], detail["pagamento"]
     if invoice:
-        st.success(
+        st.write(
             f"Fatura #{invoice['id']} · {money(invoice['valor_centavos'])} · {date_display(invoice['data'])}"
         )
     else:
         st.info("Esta OS ainda não foi faturada.")
     if payment:
-        st.success(f"Pagamento: {payment['forma']} · {money(payment['valor_centavos'])}")
+        st.write(f"Pagamento: {payment['forma']} · {money(payment['valor_centavos'])}")
     if read_only:
         return
     if order.status == StatusOS.CONCLUIDA and not invoice:
@@ -290,7 +232,7 @@ def render_finance(actor, orders, detail, read_only, key):
             )
             method = st.selectbox(
                 "Forma de pagamento",
-                ["Sem cobrança"] if total == 0 else ["Pix", "Dinheiro", "Cartão", "Transferência"],
+                ["Sem cobrança"] if total == 0 else ["Pix", "Dinheiro", "Cartão", "Débito"],
             )
             confirmed = st.checkbox("Confirmo o recebimento do valor informado")
             submitted = st.form_submit_button("Registrar pagamento")
@@ -305,3 +247,93 @@ def render_finance(actor, orders, detail, read_only, key):
     if payment and not detail["metadata"]["data_entrega"]:
         if st.button("Registrar entrega do veículo", key=f"deliver_{key}"):
             execute(lambda: orders.deliver(actor.id, order.id), "Entrega registrada.")
+
+
+def render_items(actor, catalog, orders, order, editable, key):
+    admin = actor.perfil == Perfil.ADMIN
+    order_id = order.id
+    st.subheader("Itens adicionados à ordem")
+    rows = [
+        {
+            "tipo": "Peça",
+            "descricao": p.descricao,
+            "quantidade": p.quantidade,
+            "valor_centavos": p.valor_centavos,
+            "subtotal_centavos": p.subtotal,
+            "situacao": "Consumida"
+            if p.consumido
+            else "Reserva liberada"
+            if order.status == StatusOS.CANCELADA
+            else "Reservada",
+        }
+        for p in order.pecas
+    ] + [
+        {
+            "tipo": "Serviço",
+            "descricao": s.descricao,
+            "quantidade": 1,
+            "valor_centavos": s.valor_centavos,
+            "subtotal_centavos": s.valor_centavos,
+            "situacao": str(s.status),
+        }
+        for s in order.servicos
+    ]
+    table(rows, "Nenhuma peça ou serviço adicionado à ordem.")
+    if not admin or not editable:
+        return
+    removable = [("peca", p.id, p.descricao) for p in order.pecas if not p.consumido] + [
+        ("servico", s.id, s.descricao) for s in order.servicos if s.status == StatusServico.PENDENTE
+    ]
+    if removable:
+        with st.expander("Remover um item adicionado"):
+            with st.form(f"remove_{key}"):
+                item = st.selectbox(
+                    "Item para remover",
+                    removable,
+                    format_func=lambda i: f"{'Peça' if i[0] == 'peca' else 'Serviço'} · {i[2]}",
+                )
+                removal_reason = st.text_input("Justificativa da remoção")
+                confirm = st.checkbox("Confirmo a remoção do item")
+                remove = st.form_submit_button("Remover item")
+            if remove:
+                if not confirm:
+                    st.error("Confirme a remoção do item.")
+                else:
+                    execute(
+                        lambda: orders.remove_item(
+                            actor.id, order_id, item[0], item[1], removal_reason
+                        ),
+                        "Item removido.",
+                    )
+    st.subheader("Adicione os Itens à Ordem Serviço")
+    parts = catalog.list(actor.id, "pecas", active_only=True)
+    services = catalog.list(actor.id, "servicos", active_only=True)
+    part_column, service_column = st.columns(2)
+    with part_column:
+        with st.form(f"add_part_{key}"):
+            part_id = select_record("Peça", parts, "descricao")
+            quantity = st.number_input("Quantidade", 1, 1_000_000, 1, step=1)
+            reason = st.text_input(
+                "Justificativa", key=f"part_reason_{key}"
+            )
+            add_part = st.form_submit_button("Adicionar peça", disabled=part_id is None)
+        if add_part:
+            execute(
+                lambda: orders.add_part(actor.id, order_id, part_id, quantity, reason),
+                "Peça adicionada à OS.",
+            )
+    with service_column:
+        with st.form(f"add_service_{key}"):
+            service_id = select_record("Serviço", services, "descricao")
+            service_reason = st.text_input(
+                "Justificativa", key=f"service_reason_{key}"
+            )
+            add_service = st.form_submit_button("Adicionar serviço", disabled=service_id is None)
+        if add_service:
+            execute(
+                lambda: orders.add_service(actor.id, order_id, service_id, service_reason),
+                "Serviço adicionado à OS.",
+            )
+    st.caption(
+        "Alterar itens antes da execução exige nova aprovação do orçamento. Peças consumidas e serviços iniciados não podem ser removidos."
+    )

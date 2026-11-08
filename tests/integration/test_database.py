@@ -13,7 +13,7 @@ def test_migration_idempotence_and_constraints(system):
     s["db"].migrate()
     with s["db"].transaction() as c:
         assert c.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-        assert c.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+        assert c.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
         assert c.execute("SELECT COUNT(*) FROM clientes").fetchone()[0] == 1
     with pytest.raises(ValidacaoError):
         with s["db"].transaction(write=True) as c:

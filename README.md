@@ -12,7 +12,7 @@ Abra um terminal nesta pasta e execute:
 
 Ou execute `iniciar.cmd` no Windows. Acesse **http://127.0.0.1:8501**.
 
-No primeiro acesso, crie seu administrador, com uma senha entre 10 e 128 caracteres. **Não existe senha padrão.** Depois, entre com as credenciais criadas.
+No primeiro acesso, crie seu administrador, com uma senha de no mínimo 8 caracteres e pelo menos um caractere especial. **Não existe senha padrão.** Depois, entre com as credenciais criadas.
 
 O banco é criado automaticamente em `data/oficina.sqlite3`. A aplicação inicia vazia; os dados fictícios usados nos testes não são inseridos no banco da oficina.
 
@@ -32,11 +32,11 @@ Em Linux/macOS, substitua `.venv\Scripts\python.exe` por `.venv/bin/python` e cr
 
 ## Primeiro atendimento
 
-1. Em **Usuários**, cadastre um funcionário com o perfil **Mecânico**.
-2. Em **Clientes**, cadastre uma pessoa física com CPF válido.
-3. Em **Veículos**, cadastre o veículo e selecione seu proprietário.
+1. Em **Clientes**, cadastre uma pessoa física com CPF válido.
+2. Em **Veículos**, cadastre o veículo e selecione seu proprietário.
+3. Em **Usuários**, cadastre um funcionário com o perfil **Mecânico**.
 4. Em **Serviços**, cadastre a mão de obra e o preço.
-5. Em **Peças e estoque**, cadastre as peças e registre uma entrada de estoque com justificativa.
+5. Em **Peças e estoque**, cadastre as peças e registre uma entrada de estoque; a justificativa é opcional.
 6. Em **Ordens de serviço**, abra uma OS, informe o problema e selecione o veículo e o mecânico.
 7. Adicione peças e serviços, inicie o orçamento e envie para aprovação.
 8. Como administrador, aprove o orçamento.
@@ -249,3 +249,32 @@ Para restaurar:
 - Uma alteração de preço no catálogo vale para novas inclusões; não recalcula OS existentes.
 
 Para uso remoto, configurar hospedagem Python, HTTPS, armazenamento persistente e controles de acesso adequados antes de expor o serviço.
+
+
+## Atualização de interface e operação — 02/11/2026
+
+- Tema em tons de rosa, com contraste para leitura.
+- Senhas novas ou alteradas: mínimo de 8 caracteres e pelo menos um caractere especial (por exemplo, `!`, `@` ou `#`). Senhas já cadastradas continuam funcionando.
+- Confirmações em popup: fecham no próximo clique ou tecla, pelo botão de fechar ou automaticamente após cinco segundos. Inclui a criação do primeiro administrador.
+- Menu: Início → Clientes → Veículos → Usuários → Serviços → Peças e estoque → Ordens de serviço → Histórico.
+- CPF e telefone têm máscaras durante a digitação. O telefone aceita formatos com DDD e 10 ou 11 dígitos.
+- Ano do veículo escolhido em lista, de 1886 até o próximo ano.
+- Entrada de estoque com justificativa opcional; saldos ordenados por código crescente.
+- Seletores de cadastros relacionados mostram os nomes, sem prefixos numéricos.
+- Na OS, peças e serviços aparecem juntos em “Já adicionadas à ordem”; os formulários ficam em “Para adicionar à ordem”.
+- A OS e sua aba selecionada permanecem abertas após ações, inclusive quando a mudança de situação a retira do filtro da listagem.
+- Faturamento, pagamento e entrega permanecem na aba Faturamento da OS para administradores. Não há página separada no menu, nem aba de faturamento para mecânicos.
+- Novos pagamentos oferecem Débito no lugar de Transferência. A migração `002_payment_debit.sql` preserva os registros antigos e sua forma original de pagamento.
+- O botão “Baixar ordem de serviço em PDF” gera um documento com cliente, veículo, problema relatado, itens, valores e situação. Informações de faturamento e pagamento só constam na exportação do administrador.
+
+Para aplicar a atualização, pare o Streamlit e execute novamente `iniciar.cmd`. Não é necessário apagar o banco. A migração é automática e transacional.
+
+Se estiver instalando uma cópia nova do projeto, instale `requirements-lock.txt` antes de iniciar. A exportação usa ReportLab. Os campos com máscara usam componentes v2 locais do Streamlit, sem serviço externo.
+
+Teste adicional das máscaras (Node.js):
+
+```powershell
+node tests/ui/test_masks.mjs
+```
+
+Referências de implementação: [componentes v2](https://docs.streamlit.io/develop/concepts/custom-components/components-v2/state-and-triggers) e [estado das abas](https://docs.streamlit.io/develop/api-reference/layout/st.tabs).

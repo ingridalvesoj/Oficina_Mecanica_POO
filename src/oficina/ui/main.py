@@ -13,6 +13,7 @@ from oficina.infrastructure.database import Database
 
 from .catalogs import render_catalog
 from .components import execute, table
+from .notifications import show_confirmation
 from .orders import render_orders
 
 
@@ -24,7 +25,9 @@ def render_login(auth):
         with st.form("bootstrap"):
             name = st.text_input("Nome do administrador *")
             login = st.text_input("Login *")
-            password = st.text_input("Senha *", type="password", help="Entre 10 e 128 caracteres.")
+            password = st.text_input(
+                "Senha *", type="password", help="Mínimo de 8 caracteres e um caractere especial."
+            )
             confirmation = st.text_input("Confirmar senha *", type="password")
             submitted = st.form_submit_button("Criar administrador", type="primary")
         if submitted:
@@ -63,14 +66,16 @@ def main():
     )
     st.markdown(
         """<style>
-        [data-testid="stSidebar"] {border-right: 1px solid #24364a;}
-        [data-testid="stMetric"] {border:1px solid #28435b;border-radius:12px;padding:18px;}
+        [data-testid="stSidebar"] {border-right: 1px solid #edc9d9;}
+        [data-testid="stMetric"] {background:#fff0f6;border:1px solid #edc9d9;border-radius:16px;padding:18px;}
+        [data-testid="stMetricValue"] {font-size:1.35rem;}
+        [data-testid="stMetricValue"] > div {white-space:normal;}
+        h1, h2, h3 {color:#84234e;}
         .block-container {padding-top:2rem;max-width:1450px;}
         </style>""",
         unsafe_allow_html=True,
     )
-    if "flash" in st.session_state:
-        st.success(st.session_state.pop("flash"))
+    show_confirmation()
     try:
         database = Database(database_path())
         database.migrate()
@@ -94,17 +99,21 @@ def main():
             st.title("🔧 Oficina")
             st.write(actor.nome)
             st.caption(str(actor.perfil))
-            pages = ["Início", "Ordens de serviço", "Histórico"]
-            if actor.perfil == Perfil.ADMIN:
-                pages += [
+            pages = (
+                [
+                    "Início",
                     "Clientes",
                     "Veículos",
-                    "Peças e estoque",
-                    "Serviços",
                     "Usuários",
-                    "Faturamento",
+                    "Serviços",
+                    "Peças e estoque",
+                    "Ordens de serviço",
+                    "Histórico",
                 ]
-            page = st.radio("Navegação", pages)
+                if actor.perfil == Perfil.ADMIN
+                else ["Início", "Ordens de serviço", "Histórico"]
+            )
+            page = st.radio("Navegação", pages, key="navigation")
             st.divider()
             if st.button("Sair", use_container_width=True):
                 st.session_state.clear()
@@ -134,10 +143,8 @@ def main():
                 st.info(
                     "Primeiros passos: cadastre clientes, veículos e mecânicos; depois serviços, peças e entradas de estoque. Abra a OS para iniciar o atendimento."
                 )
-        elif page in {"Ordens de serviço", "Histórico", "Faturamento"}:
-            render_orders(
-                actor, catalog, orders, history=page == "Histórico", finance=page == "Faturamento"
-            )
+        elif page in {"Ordens de serviço", "Histórico"}:
+            render_orders(actor, catalog, orders, history=page == "Histórico")
         else:
             mapping = {
                 "Clientes": "clientes",
