@@ -42,7 +42,7 @@ def render_catalog(actor, catalog, stock, name):
     key = f"{name}_{selected}_{revision}"
     st.subheader("Novo cadastro" if selected is None else f"Editar cadastro #{selected}")
     data = {}
-    with st.form(key):
+    with st.form(key, enter_to_submit=False):
         if name in {"clientes", "usuarios"}:
             data["nome"] = st.text_input("Nome *", previous.get("nome", ""))
         if name == "clientes":
@@ -121,7 +121,7 @@ def render_catalog(actor, catalog, stock, name):
         st.subheader("Estoque")
         balances = stock.balances(actor.id)
         table(balances)
-        with st.form(f"stock_{revision}"):
+        with st.form(f"stock_{revision}", enter_to_submit=False):
             part_id = select_record(
                 "Peça para movimentação", [p for p in balances if p["ativo"]], "descricao"
             )

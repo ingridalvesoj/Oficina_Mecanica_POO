@@ -1,5 +1,19 @@
 # Relatório de validação
 
+## Revisão de 09/11/2026 - formulários, download e documentação
+
+Validação restrita às novas funcionalidades, iniciada depois das alterações de código e documentação, conforme solicitado. Não foi reexecutada a suíte completa.
+
+- Cinco testes direcionados aprovados em `tests/ui/test_submission_download.py`: configuração dos 12 formulários; gravação pelo botão; PDF gerado e entregue uma vez; envio inválido sem download; falha de gravação sem mudança parcial de estado.
+- Sete verificações JavaScript aprovadas em `tests/ui/test_downloads.mjs`, incluindo ausência de repetição, remontagem do componente, nova versão e criação do arquivo para download.
+- No navegador, Enter no campo de senha não submeteu o login; clicar em Entrar submeteu. O clique em Enviar para aprovação do cliente iniciou o download sem um botão adicional. Os bytes baixados coincidiram com o PDF armazenado no banco isolado.
+- Análise estática dos arquivos alterados sem erros. Documentação em PDF de 21 páginas renderizada e inspecionada, incluindo os diagramas.
+- Bancos temporários e dados fictícios usados nas verificações; o banco operacional não foi utilizado.
+
+Há uma divergência preexistente entre os nomes de cartão na aplicação e a restrição SQL. Ela está registrada na seção 5.6 da documentação; esta revisão não altera nem certifica o faturamento por cartão.
+
+As seções seguintes preservam os resultados históricos da versão inicial e não representam uma execução completa nesta revisão.
+
 ## Ambiente
 
 - Windows, Python 3.12.14.

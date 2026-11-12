@@ -13,6 +13,7 @@ from oficina.infrastructure.database import Database
 
 from .catalogs import render_catalog
 from .components import execute, table
+from .downloads import show_pending_download
 from .notifications import show_confirmation
 from .orders import render_orders
 
@@ -23,7 +24,7 @@ def render_login(auth):
     st.caption("Clientes, veículos e ordens de serviço em um só lugar.")
     if not auth.has_users():
         st.info("Primeiro acesso: crie o administrador da oficina. Não há senha padrão.")
-        with st.form("bootstrap"):
+        with st.form("bootstrap", enter_to_submit=False):
             name = st.text_input("Nome do administrador *")
             login = st.text_input("Login *")
             password = st.text_input(
@@ -42,7 +43,7 @@ def render_login(auth):
                     "Administrador criado. Entre com suas credenciais.",
                 )
         return
-    with st.form("login"):
+    with st.form("login", enter_to_submit=False):
         login = st.text_input("Login")
         password = st.text_input("Senha", type="password")
         submitted = st.form_submit_button("Entrar", type="primary")
@@ -91,6 +92,7 @@ def main():
         unsafe_allow_html=True,
     )
     show_confirmation()
+    show_pending_download()
     try:
         database = Database(database_path())
         database.migrate()

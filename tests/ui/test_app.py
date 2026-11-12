@@ -234,7 +234,7 @@ def test_approval_return_and_generated_download(system, monkeypatch):
     assert not any(b.label == "Iniciar orçamento" for b in app.button)
     widget(app.button, "Enviar para aprovação do cliente").click().run()
     assert not app.error
-    assert any("último orçamento enviado" in b.label for b in app.get("download_button"))
+    assert not any("último orçamento enviado" in b.label for b in app.get("download_button"))
     widget(app.button, "Voltar ao orçamento").click().run()
     assert not app.error
     assert widget(app.button, "Enviar para aprovação do cliente")

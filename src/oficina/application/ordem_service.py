@@ -240,6 +240,11 @@ class OrdemService(Service):
                     "INSERT INTO orcamentos_pdf(os_id,versao,arquivo,usuario_id) VALUES (?,(SELECT COALESCE(MAX(versao),0)+1 FROM orcamentos_pdf WHERE os_id=?),?,?)",
                     (order_id, order_id, pdf, actor_id),
                 )
+                version = c.execute(
+                    "SELECT MAX(versao) FROM orcamentos_pdf WHERE os_id=?", (order_id,)
+                ).fetchone()[0]
+                return {"arquivo": pdf, "versao": version}
+        return None
 
     def item_catalog(self, actor_id: int, order_id: int) -> dict:
         with self.database.transaction() as c:

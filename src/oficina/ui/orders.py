@@ -5,6 +5,7 @@ from oficina.domain.exceptions import PermissaoNegadaError, RegistroNaoEncontrad
 from oficina.domain.validators import cents
 
 from .components import date_display, execute, money, select_record, table
+from .downloads import queue_pdf_download
 
 
 def render_orders(actor, catalog, orders, history=False, finance=False):
@@ -32,7 +33,7 @@ def render_orders(actor, catalog, orders, history=False, finance=False):
                 for r in catalog.list(actor.id, "usuarios", active_only=True)
                 if r["perfil"] == Perfil.MECANICO
             ]
-            with st.form(f"new_order_{revision}"):
+            with st.form(f"new_order_{revision}", enter_to_submit=False):
                 vehicle_id = select_record("Veículo *", vehicles, "placa")
                 mechanic_id = select_record("Mecânico responsável", mechanics, optional=True)
                 problem = st.text_area("Problema relatado *")
@@ -113,16 +114,6 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
         key=f"pdf_{key}",
         on_click="ignore",
     )
-    proposal = orders.approval_pdf(actor.id, order_id, history=read_only)
-    if proposal:
-        st.download_button(
-            f"Baixar PDF do último orçamento enviado (versão {proposal['versao']})",
-            data=proposal["arquivo"],
-            file_name=f"orcamento-os-{order_id}-v{proposal['versao']}.pdf",
-            mime="application/pdf",
-            key=f"proposal_{key}",
-            on_click="ignore",
-        )
     labels = ["Peças e serviços", "Andamento"]
     if admin:
         labels.append("Faturamento")
@@ -139,7 +130,7 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                 for r in catalog.list(actor.id, "usuarios", active_only=True)
                 if r["perfil"] == Perfil.MECANICO
             ]
-            with st.form(f"general_{key}"):
+            with st.form(f"general_{key}", enter_to_submit=False):
                 problem = st.text_area("Problema relatado", order.problema)
                 mechanic_id = select_record(
                     "Mecânico responsável", mechanics, optional=True, current=order.mecanico_id
@@ -164,8 +155,8 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                 if admin or target == StatusOS.EXECUCAO:
                     if st.button(label, type="primary", key=f"transition_{target}_{key}"):
                         execute(
-                            lambda: orders.transition(actor.id, order_id, target),
-                            "OS enviada para aprovação do cliente. PDF gerado e disponível para baixar."
+                            lambda: transition_order(orders, actor.id, order_id, target),
+                            "OS enviada para aprovação do cliente. PDF gerado; download iniciado."
                             if target == StatusOS.AGUARDANDO
                             else "Situação da OS atualizada.",
                         )
@@ -189,7 +180,7 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
                         )
             if admin and order.status != StatusOS.EXECUCAO:
                 with st.expander("Cancelar ordem de serviço"):
-                    with st.form(f"cancel_{key}"):
+                    with st.form(f"cancel_{key}", enter_to_submit=False):
                         reason = st.text_input("Motivo do cancelamento *")
                         confirmed = st.checkbox(
                             "Confirmo o cancelamento e a liberação das reservas"
@@ -216,7 +207,7 @@ def render_detail(actor, catalog, orders, order_id, read_only=False):
         st.markdown("**Ações e solicitações**")
         table(detail["auditoria"], "Nenhuma ação adicional registrada.")
         if editable and not admin:
-            with st.form(f"request_{key}"):
+            with st.form(f"request_{key}", enter_to_submit=False):
                 request = st.text_area("Solicitar inclusão ou alteração de peças e serviços")
                 submitted = st.form_submit_button("Registrar solicitação")
             if submitted:
@@ -241,7 +232,7 @@ def render_finance(actor, orders, detail, read_only, key):
         if st.button("Faturar OS", type="primary", key=f"invoice_{key}"):
             execute(lambda: orders.invoice(actor.id, order.id), "Faturamento registrado.")
     if invoice and not payment:
-        with st.form(f"payment_{key}"):
+        with st.form(f"payment_{key}", enter_to_submit=False):
             total = invoice["valor_centavos"]
             raw_amount = st.text_input(
                 "Valor integral recebido (R$)", f"{total // 100},{total % 100:02d}"
@@ -302,7 +293,7 @@ def render_items(actor, catalog, orders, order, editable, key):
     ]
     if admin and removable:
         with st.expander("Remover um item adicionado"):
-            with st.form(f"remove_{key}"):
+            with st.form(f"remove_{key}", enter_to_submit=False):
                 item = st.selectbox(
                     "Item para remover",
                     removable,
@@ -326,7 +317,7 @@ def render_items(actor, catalog, orders, order, editable, key):
     parts, services = available["pecas"], available["servicos"]
     part_column, service_column = st.columns(2)
     with part_column:
-        with st.form(f"add_part_{key}"):
+        with st.form(f"add_part_{key}", enter_to_submit=False):
             part_id = select_record("Peça", parts, "descricao")
             quantity = st.number_input("Quantidade", 1, 1_000_000, 1, step=1)
             reason = st.text_input("Justificativa", key=f"part_reason_{key}")
@@ -337,7 +328,7 @@ def render_items(actor, catalog, orders, order, editable, key):
                 "Peça adicionada à OS.",
             )
     with service_column:
-        with st.form(f"add_service_{key}"):
+        with st.form(f"add_service_{key}", enter_to_submit=False):
             service_id = select_record("Serviço", services, "descricao")
             service_reason = st.text_input("Justificativa", key=f"service_reason_{key}")
             add_service = st.form_submit_button("Adicionar serviço", disabled=service_id is None)
@@ -349,3 +340,11 @@ def render_items(actor, catalog, orders, order, editable, key):
     st.caption(
         "Alterar itens antes da execução exige nova aprovação do orçamento. Peças consumidas e serviços iniciados não podem ser removidos."
     )
+
+
+def transition_order(orders, actor_id, order_id, target):
+    proposal = orders.transition(actor_id, order_id, target)
+    if target == StatusOS.AGUARDANDO:
+        queue_pdf_download(
+            proposal["arquivo"], f"orcamento-os-{order_id}-v{proposal['versao']}.pdf"
+        )
